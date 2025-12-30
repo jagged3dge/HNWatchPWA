@@ -8,8 +8,13 @@
  */
 
 import * as admin from 'firebase-admin';
-import * as functions from 'firebase-functions';
+import crypto from 'node:crypto';
+import express from 'express';
+import { onRequest } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import webpush from 'web-push';
+
+import { hnItemToUrl, isNewWithinLastHour, type HnItem } from './utils.js';
 
 // Initialize Firebase Admin
 admin.initializeApp();
@@ -29,36 +34,61 @@ webpush.setVapidDetails(
 
 // ============ REST Endpoints ============
 
-/**
- * POST /api/subscribe - Store a new push subscription
- */
-export const subscribe = functions.region('us-central1').https.onRequest(async (req, res) => {
-  // CORS headers
+function cors(req: express.Request, res: express.Response): boolean {
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'POST');
   res.set('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
     res.status(204).send('');
-    return;
+    return true;
   }
 
-  if (req.method !== 'POST') {
-    res.status(405).send('Method not allowed');
-    return;
-  }
+  return false;
+}
+
+function subscriptionIdFromEndpoint(endpoint: string): string {
+  return crypto.createHash('sha256').update(endpoint).digest('hex');
+}
+
+type PushSubscriptionJson = {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys?: {
+    p256dh?: string;
+    auth?: string;
+  };
+};
+
+const apiApp = express();
+apiApp.use(express.json({ limit: '100kb' }));
+
+apiApp.options('/subscribe', (req, res) => {
+  cors(req, res);
+  res.status(204).send('');
+});
+
+apiApp.options('/unsubscribe', (req, res) => {
+  cors(req, res);
+  res.status(204).send('');
+});
+
+/**
+ * POST /api/subscribe - Store a new push subscription
+ */
+apiApp.post('/subscribe', async (req, res) => {
+  cors(req, res);
 
   try {
-    const subscription = req.body;
+    const subscription = req.body as PushSubscriptionJson;
 
     // Validate subscription object
-    if (!subscription || !subscription.endpoint) {
+    if (!subscription?.endpoint) {
       res.status(400).json({ error: 'Invalid subscription object' });
       return;
     }
 
-    // Store in Firestore (using endpoint as unique ID)
-    const subscriptionId = Buffer.from(subscription.endpoint).toString('base64').slice(0, 32);
+    const subscriptionId = subscriptionIdFromEndpoint(subscription.endpoint);
     await db.collection('subscriptions').doc(subscriptionId).set({
       subscription,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -76,32 +106,19 @@ export const subscribe = functions.region('us-central1').https.onRequest(async (
 /**
  * POST /api/unsubscribe - Remove a push subscription
  */
-export const unsubscribe = functions.region('us-central1').https.onRequest(async (req, res) => {
-  // CORS headers
-  res.set('Access-Control-Allow-Origin', '*');
-  res.set('Access-Control-Allow-Methods', 'POST');
-  res.set('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    res.status(204).send('');
-    return;
-  }
-
-  if (req.method !== 'POST') {
-    res.status(405).send('Method not allowed');
-    return;
-  }
+apiApp.post('/unsubscribe', async (req, res) => {
+  cors(req, res);
 
   try {
-    const subscription = req.body;
+    const subscription = req.body as PushSubscriptionJson;
 
     // Find and delete subscription
-    if (!subscription || !subscription.endpoint) {
+    if (!subscription?.endpoint) {
       res.status(400).json({ error: 'Invalid subscription object' });
       return;
     }
 
-    const subscriptionId = Buffer.from(subscription.endpoint).toString('base64').slice(0, 32);
+    const subscriptionId = subscriptionIdFromEndpoint(subscription.endpoint);
     await db.collection('subscriptions').doc(subscriptionId).delete();
 
     console.log(`Subscription removed: ${subscriptionId}`);
@@ -112,16 +129,17 @@ export const unsubscribe = functions.region('us-central1').https.onRequest(async
   }
 });
 
+export const api = onRequest({ region: 'us-central1' }, apiApp);
+
 // ============ Scheduled Functions ============
 
 /**
  * Scheduled Cloud Function - runs every hour
  * Fetches new HN stories and sends push notifications
  */
-export const sendHourlyNotifications = functions
-  .region('us-central1')
-  .pubsub.schedule('every 60 minutes')
-  .onRun(async (_context) => {
+export const sendHourlyNotifications = onSchedule(
+  { region: 'us-central1', schedule: 'every 60 minutes' },
+  async (_event) => {
     try {
       console.log('Starting hourly notification job at', new Date().toISOString());
 
@@ -153,7 +171,7 @@ export const sendHourlyNotifications = functions
             const payload = JSON.stringify({
               title: story.title,
               body: `by ${story.by || 'unknown'} • ${story.score || 0} points`,
-              url: story.url || `https://news.ycombinator.com/item?id=${story.id}`,
+              url: hnItemToUrl(story),
               icon: 'https://news.ycombinator.com/y18.gif',
             });
 
@@ -164,8 +182,9 @@ export const sendHourlyNotifications = functions
             failureCount++;
 
             // Clean up invalid subscriptions
-            if (error instanceof Error && error.message.includes('410')) {
-              const subId = Buffer.from(subscription.endpoint).toString('base64').slice(0, 32);
+            const maybeStatus = (error as { statusCode?: number } | null)?.statusCode;
+            if (maybeStatus === 404 || maybeStatus === 410) {
+              const subId = subscriptionIdFromEndpoint(subscription.endpoint);
               await db.collection('subscriptions').doc(subId).delete();
               console.log(`Removed invalid subscription: ${subId}`);
             }
@@ -178,7 +197,8 @@ export const sendHourlyNotifications = functions
       console.error('Hourly notification job failed:', error);
       // Don't throw - let the job finish gracefully
     }
-  });
+  },
+);
 
 // ============ Helper Functions ============
 
@@ -192,8 +212,7 @@ async function fetchRecentHNStories() {
     if (!listResponse.ok) throw new Error(`HN API error: ${listResponse.status}`);
 
     const storyIds = (await listResponse.json()) as number[];
-    const oneHourAgo = Math.floor(Date.now() / 1000) - 60 * 60;
-    const recentStories = [];
+    const recentStories: HnItem[] = [];
 
     // Check the first 30 stories for ones within the last hour
     for (let i = 0; i < Math.min(30, storyIds.length); i++) {
@@ -204,18 +223,11 @@ async function fetchRecentHNStories() {
 
       if (!itemResponse.ok) continue;
 
-      const story = (await itemResponse.json()) as {
-        id?: number;
-        title?: string;
-        url?: string;
-        by?: string;
-        score?: number;
-        time?: number;
-      };
+      const story = (await itemResponse.json()) as HnItem;
 
-      if (story.time && story.time >= oneHourAgo) {
+      if (story.time && isNewWithinLastHour(story.time)) {
         recentStories.push(story);
-      } else if (story.time && story.time < oneHourAgo) {
+      } else if (story.time && !isNewWithinLastHour(story.time)) {
         // Stop checking older stories
         break;
       }
@@ -240,13 +252,3 @@ async function getAllSubscriptions() {
     return [];
   }
 }
-
-/**
- * Check if a timestamp is within the last hour
- */
-function isNewWithinLastHour(timestamp: number): boolean {
-  const oneHourAgo = Math.floor(Date.now() / 1000) - 60 * 60;
-  return timestamp >= oneHourAgo;
-}
-
-export { isNewWithinLastHour };
