@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: ['main', 'develop']
+  pull_request:
+    branches: ['main', 'develop']
+
+jobs:
+  lint-format:
+    runs-on: ubuntu-latest
+    name: Lint & Format
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format -- --check
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    name: Unit Tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm test -- --reporter=json --outputFile=test-results.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: test-results.json
+
+  e2d-tests:
+    runs-on: ubuntu-latest
+    name: E2D Tests (Headless)
+    strategy:
+      matrix:
+        browser: ['chromium', 'firefox']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx playwright install ${{ matrix.browser }}
+      - run: npm test -- --project=${{ matrix.browser }} --reporter=html
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-${{ matrix.browser }}
+          path: playwright-report/
+          retention-days: 30
+
+  e2d-tests-headed:
+    runs-on: ubuntu-latest
+    name: E2D Tests (Headed - Notification Tests)
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx playwright install
+      - run: HEADED=true npm test -- --reporter=html
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-headed
+          path: playwright-report/
+          retention-days: 30
+
+  deploy-staging:
+    needs: [lint-format, unit-tests, e2d-tests]
+    runs-on: ubuntu-latest
+    name: Deploy to Staging
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Deploy to Firebase Staging
+        run: echo "Would deploy to Firebase staging here"
+        # Actual deployment would use firebase-tools
+
+  deploy-production:
+    needs: [lint-format, unit-tests, e2d-tests]
+    runs-on: ubuntu-latest
+    name: Deploy to Production
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Deploy to Firebase Production
+        run: echo "Would deploy to Firebase production here"
+        # Actual deployment would use firebase-tools

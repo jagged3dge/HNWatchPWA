@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hacker News Hourly Watcher</title>
+    <link rel="manifest" href="manifest.json" />
+    <meta name="theme-color" content="#000000" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: monospace;
+        background-color: #000;
+        color: #fff;
+        padding: 1rem;
+        line-height: 1.6;
+      }
+
+      .container {
+        max-width: 600px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        font-size: 1.5rem;
+        margin-bottom: 1rem;
+        text-transform: uppercase;
+      }
+
+      .status {
+        margin: 1rem 0;
+        padding: 0.5rem;
+        border: 1px solid #fff;
+        min-height: 2rem;
+        word-break: break-word;
+      }
+
+      .status.pending {
+        border-color: #666;
+        color: #666;
+      }
+
+      .status.subscribed {
+        border-color: #0f0;
+        color: #0f0;
+      }
+
+      .status.error {
+        border-color: #f00;
+        color: #f00;
+      }
+
+      button {
+        background-color: #fff;
+        color: #000;
+        border: 1px solid #fff;
+        padding: 0.5rem 1rem;
+        margin-right: 0.5rem;
+        cursor: pointer;
+        font-family: monospace;
+        font-weight: bold;
+        text-transform: uppercase;
+      }
+
+      button:hover {
+        background-color: #000;
+        color: #fff;
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .button-group {
+        margin-top: 1rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>HN Watcher</h1>
+      <p>Get hourly notifications of newest Hacker News posts.</p>
+
+      <div class="status pending" id="status">Initializing...</div>
+
+      <div class="button-group">
+        <button id="subscribe-btn" disabled>Subscribe</button>
+        <button id="unsubscribe-btn" disabled>Unsubscribe</button>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
