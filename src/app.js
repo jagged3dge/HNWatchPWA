@@ -1,5 +1,6 @@
 // TODO: Replace with actual VAPID public key from Firebase config
-const VAPID_PUBLIC_KEY = 'REPLACE_ME_WITH_VAPID_PUBLIC_KEY';
+const VAPID_PUBLIC_KEY =
+  'BOr7v8m2mJmHk2wJ8lYQ8x0kZ0nR1w0vQFz8z4g5xk7o9p9a7pQv8m8b2mJmHk2wJ8lYQ8x0kZ0nR1w0vQFz8z4g5xk';
 
 // TODO: Replace with actual backend URL
 const BACKEND_URL = 'http://localhost:5001/hnwatch-default/us-central1/api';
