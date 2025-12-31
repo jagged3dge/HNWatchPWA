@@ -57,3 +57,47 @@ export function filterRecentItems(items: HnItem[]): HnItem[] {
     return isNewWithinLastHour(item.time);
   });
 }
+
+/**
+ * Retry configuration for fetch operations
+ */
+export type RetryConfig = {
+  maxRetries: number;
+  initialDelayMs: number;
+  maxDelayMs: number;
+  backoffMultiplier: number;
+};
+
+/**
+ * Fetch with exponential backoff retry logic
+ */
+export async function fetchWithRetry(
+  url: string,
+  config: RetryConfig = {
+    maxRetries: 3,
+    initialDelayMs: 1000,
+    maxDelayMs: 10000,
+    backoffMultiplier: 2,
+  },
+  retries = config.maxRetries,
+  delayMs = config.initialDelayMs,
+): Promise<Response> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+    return response;
+  } catch (error) {
+    if (retries > 0) {
+      console.warn(`Fetch failed for ${url}, retrying in ${delayMs}ms (${retries} retries left)`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      const nextDelay = Math.min(
+        delayMs * config.backoffMultiplier,
+        config.maxDelayMs,
+      );
+      return fetchWithRetry(url, config, retries - 1, nextDelay);
+    }
+    throw error;
+  }
+}

@@ -344,4 +344,50 @@ test.describe('Service worker script', () => {
     expect(claimCalls.length).toBeGreaterThan(0);
     expect(registerCalls).toEqual([{ tag: 'hn-hourly', minInterval: 60 * 60 * 1000 }]);
   });
+
+  test('periodicsync retries HN API calls on failure', async () => {
+    const nowMs = 1_700_000_000_000;
+    const nowSeconds = Math.floor(nowMs / 1000);
+    const oneMinuteAgo = nowSeconds - 60;
+
+    let fetchAttempts = 0;
+
+    const { listeners, showNotificationCalls } = loadServiceWorkerScript({
+      nowMs,
+      fetchImpl: async (url) => {
+        fetchAttempts++;
+        // First attempt fails, second succeeds
+        if (fetchAttempts === 1 && url.endsWith('/v0/newstories.json')) {
+          return { ok: false, status: 500, json: async () => null };
+        }
+        if (url.endsWith('/v0/newstories.json')) {
+          return { ok: true, status: 200, json: async () => [123] };
+        }
+        if (url.includes('/v0/item/123.json')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ id: 123, title: 'Retried', by: 'a', time: oneMinuteAgo }),
+          };
+        }
+        return { ok: false, status: 404, json: async () => null };
+      },
+    });
+
+    const done = defer();
+    const event = {
+      tag: 'hn-hourly',
+      waitUntil: (p: Promise<unknown>) => {
+        p.finally(done.resolve);
+      },
+    };
+
+    listeners.periodicsync(event);
+    await done.promise;
+
+    // Should have retried and eventually succeeded
+    expect(fetchAttempts).toBeGreaterThan(1);
+    expect(showNotificationCalls.length).toBe(1);
+    expect(showNotificationCalls[0]?.title).toBe('Retried');
+  });
 });

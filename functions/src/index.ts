@@ -14,7 +14,7 @@ import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import webpush from 'web-push';
 
-import { type HnItem, hnItemToUrl, isNewWithinLastHour } from './utils.js';
+import { type HnItem, fetchWithRetry, hnItemToUrl, isNewWithinLastHour } from './utils.js';
 
 // Initialize Firebase Admin
 admin.initializeApp();
@@ -203,33 +203,33 @@ export const sendHourlyNotifications = onSchedule(
 // ============ Helper Functions ============
 
 /**
- * Fetch recent HN stories from last hour
+ * Fetch recent HN stories from last hour with retry logic
  */
 async function fetchRecentHNStories() {
   try {
-    // Fetch newstories list
-    const listResponse = await fetch('https://hacker-news.firebaseio.com/v0/newstories.json');
-    if (!listResponse.ok) throw new Error(`HN API error: ${listResponse.status}`);
-
+    // Fetch newstories list with retry
+    const listResponse = await fetchWithRetry('https://hacker-news.firebaseio.com/v0/newstories.json');
     const storyIds = (await listResponse.json()) as number[];
     const recentStories: HnItem[] = [];
 
     // Check the first 30 stories for ones within the last hour
     for (let i = 0; i < Math.min(30, storyIds.length); i++) {
       const storyId = storyIds[i];
-      const itemResponse = await fetch(
-        `https://hacker-news.firebaseio.com/v0/item/${storyId}.json`,
-      );
+      try {
+        const itemResponse = await fetchWithRetry(
+          `https://hacker-news.firebaseio.com/v0/item/${storyId}.json`,
+        );
+        const story = (await itemResponse.json()) as HnItem;
 
-      if (!itemResponse.ok) continue;
-
-      const story = (await itemResponse.json()) as HnItem;
-
-      if (story.time && isNewWithinLastHour(story.time)) {
-        recentStories.push(story);
-      } else if (story.time && !isNewWithinLastHour(story.time)) {
-        // Stop checking older stories
-        break;
+        if (story.time && isNewWithinLastHour(story.time)) {
+          recentStories.push(story);
+        } else if (story.time && !isNewWithinLastHour(story.time)) {
+          // Stop checking older stories
+          break;
+        }
+      } catch (error) {
+        console.warn(`Failed to fetch item ${storyId}, skipping:`, error);
+        continue;
       }
     }
 

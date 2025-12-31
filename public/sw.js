@@ -101,22 +101,48 @@ self.addEventListener('periodicsync', (event) => {
   }
 });
 
+// Retry configuration
+const FETCH_RETRY_CONFIG = {
+  maxRetries: 3,
+  initialDelayMs: 1000,
+  maxDelayMs: 10000,
+  backoffMultiplier: 2,
+};
+
+// Exponential backoff fetch with retries
+async function fetchWithRetry(url, retries = FETCH_RETRY_CONFIG.maxRetries, delayMs = FETCH_RETRY_CONFIG.initialDelayMs) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+    return response;
+  } catch (error) {
+    if (retries > 0) {
+      console.warn(`[SW] Fetch failed for ${url}, retrying in ${delayMs}ms (${retries} retries left)`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      const nextDelay = Math.min(
+        delayMs * FETCH_RETRY_CONFIG.backoffMultiplier,
+        FETCH_RETRY_CONFIG.maxDelayMs,
+      );
+      return fetchWithRetry(url, retries - 1, nextDelay);
+    }
+    throw error;
+  }
+}
+
 // Fetch new HN stories and show notification
 async function fetchAndNotify() {
   try {
-    // Fetch latest stories
-    const response = await fetch('https://hacker-news.firebaseio.com/v0/newstories.json');
-    if (!response.ok) throw new Error(`HN API error: ${response.status}`);
-
-    const storyIds = await response.json();
+    // Fetch latest stories with retry
+    const listResponse = await fetchWithRetry('https://hacker-news.firebaseio.com/v0/newstories.json');
+    const storyIds = await listResponse.json();
     const topStoryId = storyIds[0];
 
-    // Fetch story details
-    const storyResponse = await fetch(
+    // Fetch story details with retry
+    const storyResponse = await fetchWithRetry(
       `https://hacker-news.firebaseio.com/v0/item/${topStoryId}.json`,
     );
-    if (!storyResponse.ok) throw new Error(`HN item API error: ${storyResponse.status}`);
-
     const story = await storyResponse.json();
 
     // Check if story is within last hour
@@ -143,7 +169,7 @@ async function fetchAndNotify() {
 
     console.log('[SW] Notification shown for story:', title);
   } catch (error) {
-    console.error('[SW] Fetch and notify error:', error);
+    console.error('[SW] Fetch and notify error after retries:', error);
   }
 }
 
