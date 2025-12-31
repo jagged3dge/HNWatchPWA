@@ -18,8 +18,8 @@ const mockSubscription = {
   endpoint: `https://example.com/push/${Date.now()}`,
   expirationTime: null,
   keys: {
-    p256dh: 'dummyP256dh_' + Math.random().toString(36).slice(2),
-    auth: 'dummyAuth_' + Math.random().toString(36).slice(2),
+    p256dh: `dummyP256dh_${Math.random().toString(36).slice(2)}`,
+    auth: `dummyAuth_${Math.random().toString(36).slice(2)}`,
   },
 };
 

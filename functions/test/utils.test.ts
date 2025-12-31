@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from '@jest/globals';
-import { filterRecentItems, hnItemToUrl, isNewWithinLastHour, type HnItem } from '../src/utils.js';
+import { beforeEach, describe, expect, it } from '@jest/globals';
+
+import { filterRecentItems, type HnItem, hnItemToUrl, isNewWithinLastHour } from '../src/utils';
 
 describe('Backend Utility Functions', () => {
   describe('isNewWithinLastHour', () => {
