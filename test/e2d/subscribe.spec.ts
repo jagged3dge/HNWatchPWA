@@ -4,6 +4,67 @@ test.describe('Subscribe to Hacker News notifications', () => {
   test.beforeEach(async ({ page, context }) => {
     // Grant notification permission by default
     await context.grantPermissions(['notifications']);
+
+    await page.addInitScript(() => {
+      const mockSubscription = {
+        endpoint: 'https://example.com/endpoint',
+        keys: {
+          p256dh: 'test',
+          auth: 'test',
+        },
+      };
+
+      function getStoredSubscription() {
+        const raw = localStorage.getItem('hn-subscription');
+        if (!raw) return null;
+        try {
+          return JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      }
+
+      function normalizeSubscription(sub) {
+        if (!sub) return null;
+        if (typeof sub.toJSON === 'function') return sub;
+        return {
+          ...sub,
+          toJSON() {
+            return sub;
+          },
+          unsubscribe: async () => true,
+        };
+      }
+
+      const registration = {
+        pushManager: {
+          getSubscription: async () => {
+            const stored = getStoredSubscription();
+            return normalizeSubscription(stored);
+          },
+          subscribe: async () => normalizeSubscription(mockSubscription),
+        },
+      };
+
+      const ready = Promise.resolve(registration);
+
+      Object.defineProperty(navigator, 'serviceWorker', {
+        value: {
+          controller: {},
+          ready,
+          register: async () => registration,
+        },
+        configurable: true,
+      });
+    });
+
+    await page.route('**/subscribe', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+    await page.route('**/unsubscribe', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+
     await page.goto('/');
     // Wait for service worker and initialization
     await page.waitForLoadState('networkidle');
