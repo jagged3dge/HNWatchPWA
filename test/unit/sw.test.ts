@@ -25,6 +25,7 @@ function loadServiceWorkerScript(overrides?: {
   openWindow?: (url: string) => Promise<any>;
   periodicSyncRegister?: (tag: string, options: { minInterval: number }) => Promise<void>;
   fetchImpl?: (url: string) => Promise<{ ok: boolean; status: number; json: () => Promise<any> }>;
+  nowMs?: number;
 }) {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const swPath = path.join(__dirname, '..', '..', 'public', 'sw.js');
@@ -76,10 +77,20 @@ function loadServiceWorkerScript(overrides?: {
       json: async () => [],
     }));
 
+  const RealDate = Date;
+  const DateImpl = typeof overrides?.nowMs === 'number'
+    ? class MockDate extends RealDate {
+        static now() {
+          return overrides.nowMs as number;
+        }
+      }
+    : RealDate;
+
   const context = vm.createContext({
     self: selfObj,
     clients: clientsObj,
     fetch: fetchImpl,
+    Date: DateImpl,
     console,
     setTimeout,
     clearTimeout,
@@ -124,6 +135,139 @@ test.describe('Service worker script', () => {
     expect(showNotificationCalls.length).toBe(1);
     expect(showNotificationCalls[0]?.title).toBe('Test story');
     expect(showNotificationCalls[0]?.options?.data?.url).toBe('https://example.com/story');
+  });
+
+  test('periodicsync shows notification for recent story and skips older story', async () => {
+    const nowMs = 1_700_000_000_000;
+    const nowSeconds = Math.floor(nowMs / 1000);
+    const oneMinuteAgo = nowSeconds - 60;
+    const twoHoursAgo = nowSeconds - 2 * 60 * 60;
+
+    // First run: recent story
+    {
+      const fetchCalls: string[] = [];
+      const { listeners, showNotificationCalls } = loadServiceWorkerScript({
+        nowMs,
+        fetchImpl: async (url) => {
+          fetchCalls.push(url);
+          if (url.endsWith('/v0/newstories.json')) {
+            return { ok: true, status: 200, json: async () => [123] };
+          }
+          if (url.includes('/v0/item/123.json')) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({ id: 123, title: 'Recent', by: 'a', time: oneMinuteAgo }),
+            };
+          }
+          return { ok: false, status: 404, json: async () => null };
+        },
+      });
+
+      const done = defer();
+      const event = {
+        tag: 'hn-hourly',
+        waitUntil: (p: Promise<any>) => {
+          p.finally(done.resolve);
+        },
+      };
+
+      listeners.periodicsync(event);
+      await done.promise;
+
+      expect(fetchCalls.some((u) => u.includes('/v0/newstories.json'))).toBe(true);
+      expect(showNotificationCalls.length).toBe(1);
+      expect(showNotificationCalls[0]?.title).toBe('Recent');
+    }
+
+    // Second run: older story should not notify
+    {
+      const { listeners, showNotificationCalls } = loadServiceWorkerScript({
+        nowMs,
+        fetchImpl: async (url) => {
+          if (url.endsWith('/v0/newstories.json')) {
+            return { ok: true, status: 200, json: async () => [456] };
+          }
+          if (url.includes('/v0/item/456.json')) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({ id: 456, title: 'Old', by: 'b', time: twoHoursAgo }),
+            };
+          }
+          return { ok: false, status: 404, json: async () => null };
+        },
+      });
+
+      const done = defer();
+      const event = {
+        tag: 'hn-hourly',
+        waitUntil: (p: Promise<any>) => {
+          p.finally(done.resolve);
+        },
+      };
+
+      listeners.periodicsync(event);
+      await done.promise;
+
+      expect(showNotificationCalls.length).toBe(0);
+    }
+  });
+
+  test('manual sync message triggers fetch and notification', async () => {
+    const nowMs = 1_700_000_000_000;
+    const nowSeconds = Math.floor(nowMs / 1000);
+    const oneMinuteAgo = nowSeconds - 60;
+
+    const { listeners, showNotificationCalls } = loadServiceWorkerScript({
+      nowMs,
+      fetchImpl: async (url) => {
+        if (url.endsWith('/v0/newstories.json')) {
+          return { ok: true, status: 200, json: async () => [999] };
+        }
+        if (url.includes('/v0/item/999.json')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ id: 999, title: 'Manual', by: 'm', time: oneMinuteAgo }),
+          };
+        }
+        return { ok: false, status: 404, json: async () => null };
+      },
+    });
+
+    const done = defer();
+    const event = {
+      data: { type: 'MANUAL_SYNC' },
+      waitUntil: (p: Promise<any>) => {
+        p.finally(done.resolve);
+      },
+    };
+
+    listeners.message(event);
+    await done.promise;
+
+    expect(showNotificationCalls.length).toBe(1);
+    expect(showNotificationCalls[0]?.title).toBe('Manual');
+  });
+
+  test('periodicsync handles HN API error without notifying', async () => {
+    const { listeners, showNotificationCalls } = loadServiceWorkerScript({
+      fetchImpl: async (_url) => ({ ok: false, status: 500, json: async () => null }),
+    });
+
+    const done = defer();
+    const event = {
+      tag: 'hn-hourly',
+      waitUntil: (p: Promise<any>) => {
+        p.finally(done.resolve);
+      },
+    };
+
+    listeners.periodicsync(event);
+    await done.promise;
+
+    expect(showNotificationCalls.length).toBe(0);
   });
 
   test('notificationclick focuses existing window client when url matches', async () => {
