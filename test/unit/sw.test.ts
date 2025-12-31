@@ -1,11 +1,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 
 import { expect, test } from '@playwright/test';
 
-type ListenerMap = Record<string, (event: any) => any>;
+type ListenerMap = Record<string, (event: unknown) => unknown>;
+
+type FetchResponse<T = unknown> = {
+  ok: boolean;
+  status: number;
+  json: () => Promise<T>;
+};
+
+type FetchImpl = (url: string) => Promise<FetchResponse>;
+
+type WindowClient = {
+  url?: string;
+  focus?: () => Promise<void>;
+};
 
 type Deferred = {
   promise: Promise<void>;
@@ -21,10 +34,10 @@ function defer(): Deferred {
 }
 
 function loadServiceWorkerScript(overrides?: {
-  matchAll?: () => Promise<any[]>;
-  openWindow?: (url: string) => Promise<any>;
+  matchAll?: () => Promise<WindowClient[]>;
+  openWindow?: (url: string) => Promise<unknown>;
   periodicSyncRegister?: (tag: string, options: { minInterval: number }) => Promise<void>;
-  fetchImpl?: (url: string) => Promise<{ ok: boolean; status: number; json: () => Promise<any> }>;
+  fetchImpl?: FetchImpl;
   nowMs?: number;
 }) {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -33,7 +46,7 @@ function loadServiceWorkerScript(overrides?: {
 
   const listeners: ListenerMap = {};
 
-  const showNotificationCalls: Array<{ title: string; options: any }> = [];
+  const showNotificationCalls: Array<{ title: string; options: unknown }> = [];
 
   const clientsMatchAll = overrides?.matchAll ?? (async () => []);
   const clientsOpenWindow = overrides?.openWindow ?? (async () => undefined);
@@ -42,9 +55,9 @@ function loadServiceWorkerScript(overrides?: {
 
   const claimCalls: number[] = [];
 
-  const selfObj: any = {
+  const selfObj: Record<string, unknown> = {
     registration: {
-      showNotification: async (title: string, options: any) => {
+      showNotification: async (title: string, options: unknown) => {
         showNotificationCalls.push({ title, options });
       },
       periodicSync: periodicSyncRegister
@@ -59,12 +72,12 @@ function loadServiceWorkerScript(overrides?: {
       },
     },
     skipWaiting: async () => undefined,
-    addEventListener: (type: string, handler: (event: any) => any) => {
+    addEventListener: (type: string, handler: (event: unknown) => unknown) => {
       listeners[type] = handler;
     },
   };
 
-  const clientsObj: any = {
+  const clientsObj: Record<string, unknown> = {
     matchAll: clientsMatchAll,
     openWindow: clientsOpenWindow,
   };
@@ -78,13 +91,14 @@ function loadServiceWorkerScript(overrides?: {
     }));
 
   const RealDate = Date;
-  const DateImpl = typeof overrides?.nowMs === 'number'
-    ? class MockDate extends RealDate {
-        static now() {
-          return overrides.nowMs as number;
+  const DateImpl =
+    typeof overrides?.nowMs === 'number'
+      ? class MockDate extends RealDate {
+          static now() {
+            return overrides.nowMs as number;
+          }
         }
-      }
-    : RealDate;
+      : RealDate;
 
   const context = vm.createContext({
     self: selfObj,
@@ -124,7 +138,7 @@ test.describe('Service worker script', () => {
         }),
         text: () => 'fallback',
       },
-      waitUntil: (p: Promise<any>) => {
+      waitUntil: (p: Promise<unknown>) => {
         p.finally(done.resolve);
       },
     };
@@ -167,7 +181,7 @@ test.describe('Service worker script', () => {
       const done = defer();
       const event = {
         tag: 'hn-hourly',
-        waitUntil: (p: Promise<any>) => {
+        waitUntil: (p: Promise<unknown>) => {
           p.finally(done.resolve);
         },
       };
@@ -202,7 +216,7 @@ test.describe('Service worker script', () => {
       const done = defer();
       const event = {
         tag: 'hn-hourly',
-        waitUntil: (p: Promise<any>) => {
+        waitUntil: (p: Promise<unknown>) => {
           p.finally(done.resolve);
         },
       };
@@ -239,7 +253,7 @@ test.describe('Service worker script', () => {
     const done = defer();
     const event = {
       data: { type: 'MANUAL_SYNC' },
-      waitUntil: (p: Promise<any>) => {
+      waitUntil: (p: Promise<unknown>) => {
         p.finally(done.resolve);
       },
     };
@@ -259,7 +273,7 @@ test.describe('Service worker script', () => {
     const done = defer();
     const event = {
       tag: 'hn-hourly',
-      waitUntil: (p: Promise<any>) => {
+      waitUntil: (p: Promise<unknown>) => {
         p.finally(done.resolve);
       },
     };
@@ -294,7 +308,7 @@ test.describe('Service worker script', () => {
         data: { url: 'https://example.com/story' },
         close: () => closeCalls.push(Date.now()),
       },
-      waitUntil: (p: Promise<any>) => {
+      waitUntil: (p: Promise<unknown>) => {
         p.finally(done.resolve);
       },
     };
@@ -319,7 +333,7 @@ test.describe('Service worker script', () => {
 
     const done = defer();
     const event = {
-      waitUntil: (p: Promise<any>) => {
+      waitUntil: (p: Promise<unknown>) => {
         p.finally(done.resolve);
       },
     };

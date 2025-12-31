@@ -7,14 +7,14 @@
  * - Scheduled hourly: fetch HN API, filter recent stories, send push notifications
  */
 
-import * as admin from 'firebase-admin';
 import crypto from 'node:crypto';
 import express from 'express';
+import * as admin from 'firebase-admin';
 import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import webpush from 'web-push';
 
-import { hnItemToUrl, isNewWithinLastHour, type HnItem } from './utils.js';
+import { type HnItem, hnItemToUrl, isNewWithinLastHour } from './utils.js';
 
 // Initialize Firebase Admin
 admin.initializeApp();
