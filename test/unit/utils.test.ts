@@ -5,41 +5,58 @@
 
 import { expect, test } from '@playwright/test';
 
-// Utility function to test: isNewWithinLastHour
-function isNewWithinLastHour(timestamp: number): boolean {
-  const oneHourAgo = Math.floor(Date.now() / 1000) - 60 * 60;
-  return timestamp >= oneHourAgo;
-}
+import { hnItemToUrl, isNewWithinLastHour } from '../../functions/src/utils';
 
+// Utility function to test: isNewWithinLastHour
 test.describe('isNewWithinLastHour utility', () => {
   test('returns true for story from 5 minutes ago', () => {
-    const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 5 * 60;
-    expect(isNewWithinLastHour(fiveMinutesAgo)).toBe(true);
+    const nowMs = 1_700_000_000_000;
+    const fiveMinutesAgo = Math.floor(nowMs / 1000) - 5 * 60;
+    expect(isNewWithinLastHour(fiveMinutesAgo, nowMs)).toBe(true);
   });
 
   test('returns true for story from 59 minutes ago', () => {
-    const fiftyNineMinutesAgo = Math.floor(Date.now() / 1000) - 59 * 60;
-    expect(isNewWithinLastHour(fiftyNineMinutesAgo)).toBe(true);
+    const nowMs = 1_700_000_000_000;
+    const fiftyNineMinutesAgo = Math.floor(nowMs / 1000) - 59 * 60;
+    expect(isNewWithinLastHour(fiftyNineMinutesAgo, nowMs)).toBe(true);
   });
 
   test('returns true for story from right now', () => {
-    const now = Math.floor(Date.now() / 1000);
-    expect(isNewWithinLastHour(now)).toBe(true);
+    const nowMs = 1_700_000_000_000;
+    const now = Math.floor(nowMs / 1000);
+    expect(isNewWithinLastHour(now, nowMs)).toBe(true);
   });
 
   test('returns false for story from 61 minutes ago', () => {
-    const sixtyOneMinutesAgo = Math.floor(Date.now() / 1000) - 61 * 60;
-    expect(isNewWithinLastHour(sixtyOneMinutesAgo)).toBe(false);
+    const nowMs = 1_700_000_000_000;
+    const sixtyOneMinutesAgo = Math.floor(nowMs / 1000) - 61 * 60;
+    expect(isNewWithinLastHour(sixtyOneMinutesAgo, nowMs)).toBe(false);
   });
 
   test('returns false for story from 2 hours ago', () => {
-    const twoHoursAgo = Math.floor(Date.now() / 1000) - 2 * 60 * 60;
-    expect(isNewWithinLastHour(twoHoursAgo)).toBe(false);
+    const nowMs = 1_700_000_000_000;
+    const twoHoursAgo = Math.floor(nowMs / 1000) - 2 * 60 * 60;
+    expect(isNewWithinLastHour(twoHoursAgo, nowMs)).toBe(false);
   });
 
   test('returns false for story from 24 hours ago', () => {
-    const twentyFourHoursAgo = Math.floor(Date.now() / 1000) - 24 * 60 * 60;
-    expect(isNewWithinLastHour(twentyFourHoursAgo)).toBe(false);
+    const nowMs = 1_700_000_000_000;
+    const twentyFourHoursAgo = Math.floor(nowMs / 1000) - 24 * 60 * 60;
+    expect(isNewWithinLastHour(twentyFourHoursAgo, nowMs)).toBe(false);
+  });
+});
+
+test.describe('hnItemToUrl utility', () => {
+  test('returns item.url when present', () => {
+    expect(hnItemToUrl({ id: 1, url: 'https://example.com' })).toBe('https://example.com');
+  });
+
+  test('falls back to HN item URL when id is present', () => {
+    expect(hnItemToUrl({ id: 123 })).toBe('https://news.ycombinator.com/item?id=123');
+  });
+
+  test('falls back to HN homepage when no url or id', () => {
+    expect(hnItemToUrl({})).toBe('https://news.ycombinator.com');
   });
 });
 
@@ -48,13 +65,8 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
 
-  const rawData = atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
+  const buffer = Buffer.from(base64, 'base64');
+  return new Uint8Array(buffer);
 }
 
 test.describe('urlBase64ToUint8Array utility', () => {
