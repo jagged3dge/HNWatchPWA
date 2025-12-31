@@ -1,9 +1,4 @@
-// TODO: Replace with actual VAPID public key from Firebase config
-const VAPID_PUBLIC_KEY =
-  'BOr7v8m2mJmHk2wJ8lYQ8x0kZ0nR1w0vQFz8z4g5xk7o9p9a7pQv8m8b2mJmHk2wJ8lYQ8x0kZ0nR1w0vQFz8z4g5xk';
-
-// TODO: Replace with actual backend URL
-const BACKEND_URL = 'http://localhost:5001/hnwatch-default/us-central1/api';
+import { CONFIG, isVapidKeyConfigured, validateVapidKey } from './config.js';
 
 // State management
 let swRegistration = null;
@@ -19,12 +14,18 @@ window.addEventListener('DOMContentLoaded', init);
 
 async function init() {
   try {
+    // Check VAPID key configuration
+    if (!isVapidKeyConfigured()) {
+      console.warn('VAPID key not configured. Notifications will not work until key is set.');
+      subscribeBtnEl.title = 'VAPID key not configured. Contact administrator.';
+    }
+
     // Register service worker
     if ('serviceWorker' in navigator) {
       swRegistration = await navigator.serviceWorker.register('sw.js', {
         scope: '/',
       });
-      setStatus('Service worker registered', 'pending');
+      setStatus('Service worker registered ✓', 'pending');
     } else {
       throw new Error('Service Workers not supported');
     }
@@ -34,9 +35,10 @@ async function init() {
     if (existingSubscription) {
       subscription = existingSubscription;
       updateUI();
-      setStatus('Already subscribed', 'subscribed');
+      setStatus('Already subscribed ✓', 'subscribed');
     } else {
       enableSubscribeButton();
+      setStatus('Ready to subscribe', 'pending');
     }
   } catch (error) {
     console.error('Init error:', error);
@@ -49,6 +51,10 @@ unsubscribeBtnEl.addEventListener('click', unsubscribe);
 
 async function subscribe() {
   try {
+    if (!isVapidKeyConfigured()) {
+      throw new Error('VAPID key not configured. Notifications cannot be enabled.');
+    }
+
     setStatus('Requesting notification permission...', 'pending');
 
     // Request notification permission
@@ -57,19 +63,20 @@ async function subscribe() {
       throw new Error('Notification permission denied');
     }
 
-    setStatus('Subscribing to push...', 'pending');
+    setStatus('Subscribing to push notifications...', 'pending');
 
     // Subscribe to push notifications
     const options = {
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      ...CONFIG.notificationDefaults,
+      applicationServerKey: urlBase64ToUint8Array(CONFIG.vapidPublicKey),
     };
 
     subscription = await swRegistration.pushManager.subscribe(options);
+    console.log('Push subscription created:', subscription.endpoint);
 
     // Send subscription to backend
-    setStatus('Sending subscription to server...', 'pending');
-    const response = await fetch(`${BACKEND_URL}/subscribe`, {
+    setStatus('Registering with server...', 'pending');
+    const response = await fetch(`${CONFIG.backendUrl}/subscribe`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -78,14 +85,20 @@ async function subscribe() {
     });
 
     if (!response.ok) {
-      throw new Error(`Server error: ${response.statusText}`);
+      // If backend fails, clean up the push subscription
+      await subscription.unsubscribe();
+      subscription = null;
+      throw new Error(`Server registration failed: ${response.statusText}`);
     }
+
+    const result = await response.json();
+    console.log('Server registration successful:', result.id);
 
     // Save to localStorage
     localStorage.setItem('hn-subscription', JSON.stringify(subscription.toJSON()));
 
     updateUI();
-    setStatus('Successfully subscribed!', 'subscribed');
+    setStatus('Successfully subscribed ✓', 'subscribed');
   } catch (error) {
     console.error('Subscription error:', error);
     setStatus(`Error: ${error.message}`, 'error');
@@ -97,25 +110,32 @@ async function unsubscribe() {
     setStatus('Unsubscribing...', 'pending');
 
     if (subscription) {
-      // Notify backend
-      await fetch(`${BACKEND_URL}/unsubscribe`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(subscription.toJSON()),
-      });
+      // Notify backend to clean up subscription
+      try {
+        await fetch(`${CONFIG.backendUrl}/unsubscribe`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(subscription.toJSON()),
+        });
+        console.log('Backend unsubscription successful');
+      } catch (error) {
+        console.warn('Backend unsubscription failed, continuing:', error);
+        // Continue even if backend fails - we'll unsubscribe locally
+      }
 
-      // Unsubscribe from push
+      // Unsubscribe from push manager
       await subscription.unsubscribe();
       subscription = null;
+      console.log('Local push unsubscription completed');
     }
 
     // Clear localStorage
     localStorage.removeItem('hn-subscription');
 
     updateUI();
-    setStatus('Unsubscribed', 'pending');
+    setStatus('Unsubscribed ✓', 'pending');
     enableSubscribeButton();
   } catch (error) {
     console.error('Unsubscribe error:', error);
