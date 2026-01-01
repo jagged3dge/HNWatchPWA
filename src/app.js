@@ -9,6 +9,17 @@ const statusEl = document.getElementById('status');
 const subscribeBtnEl = document.getElementById('subscribe-btn');
 const unsubscribeBtnEl = document.getElementById('unsubscribe-btn');
 
+// Development-only validation (tree-shaken in production)
+if (import.meta.env.DEV) {
+  if (!subscribeBtnEl || !unsubscribeBtnEl || !statusEl) {
+    console.error('[DEV] Missing required DOM elements', {
+      status: !!statusEl,
+      subscribeBtn: !!subscribeBtnEl,
+      unsubscribeBtn: !!unsubscribeBtnEl,
+    });
+  }
+}
+
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', init);
 
