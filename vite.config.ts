@@ -2,26 +2,28 @@ import path from 'node:path';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  root: './public',
+  root: '.',
   build: {
-    outDir: '../dist',
+    outDir: 'dist',
     emptyOutDir: true,
-    rollupOptions: {
-      input: {
-        main: './public/index.html',
-      },
-    },
     sourcemap: process.env.NODE_ENV === 'development',
+    rollupOptions: {
+      input: [path.resolve(__dirname, 'index.html')],
+    },
   },
   server: {
     port: 8000,
     open: true,
   },
   resolve: {
-    // Allow importing from src directory relative to project root
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(__dirname, 'src'),
     },
+  },
+  // publicDir: './public',
+  publicDir: path.resolve(__dirname, 'public'),
+  worker: {
+    format: 'es',
   },
   define: {
     // Inject environment variables into the app
