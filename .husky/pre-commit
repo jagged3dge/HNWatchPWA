@@ -1,5 +1,2 @@
-#!/bin/sh
-. "$(dirname "$0")/_/husky.sh"
-
-npx biome check . --apply
-npx biome format --apply
+npx biome check . --write
+npx biome format . --write
