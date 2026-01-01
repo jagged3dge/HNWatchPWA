@@ -56,24 +56,52 @@ firebase functions:config:set \
 firebase functions:config:get
 ```
 
-### 4. Configure Frontend with VAPID Public Key
+### 4. Configure Environment Variables
 
-Edit `src/app.js` and replace:
-```javascript
-const VAPID_PUBLIC_KEY = 'REPLACE_ME_WITH_VAPID_PUBLIC_KEY';
+The application uses **Vite for build-time environment variable injection**. Configuration priority:
+
+1. **Runtime injection** (`window.__HN_CONFIG__` from server)
+2. **Build-time environment variables** (Vite injects via `define`)
+3. **localStorage fallback** (user-provided or cached)
+4. **Hardcoded defaults**
+
+#### Development Setup
+
+Copy `.env.development.example` to `.env.development.local`:
+
+```bash
+cp .env.development.example .env.development.local
 ```
 
-With your actual public VAPID key.
+Edit `.env.development.local` and fill in your VAPID public key:
 
-Also update the backend URL if deploying to Firebase:
-```javascript
-const BACKEND_URL = 'https://your-project.cloudfunctions.net/api';
+```env
+VITE_VAPID_PUBLIC_KEY=<your-vapid-public-key>
+VITE_BACKEND_URL=http://localhost:5001/hnwatch-default/us-central1/api
+VITE_HN_API_BASE=https://hacker-news.firebaseio.com
+
+# Backend config (never commit real keys to version control)
+VAPID_PUBLIC_KEY=<your-vapid-public-key>
+VAPID_PRIVATE_KEY=<your-vapid-private-key>
 ```
 
-Or for local development:
-```javascript
-const BACKEND_URL = 'http://localhost:5001/your-project/us-central1/api';
+#### Production Setup
+
+Copy `.env.production.example` to `.env.production.local`:
+
+```bash
+cp .env.production.example .env.production.local
 ```
+
+Edit and set production values:
+
+```env
+VITE_VAPID_PUBLIC_KEY=<your-vapid-public-key>
+VITE_BACKEND_URL=https://your-project.cloudfunctions.net/api
+VITE_HN_API_BASE=https://hacker-news.firebaseio.com
+```
+
+**Important**: Sensitive values (VAPID_PRIVATE_KEY, etc.) should be set via Firebase Functions config in production, not in `.env` files.
 
 ### 5. Set Up Service Worker in Hosting
 
@@ -111,12 +139,18 @@ This starts:
 - Functions on `http://localhost:5001`
 - Firestore on `http://localhost:8080`
 
-#### Terminal 2: Dev Server (Static Files)
+#### Terminal 2: Dev Server (Vite)
 ```bash
-npx http-server ./public -p 8000
+npm run dev
 ```
 
-Then visit `http://localhost:8000` in your browser.
+This starts the Vite dev server on `http://localhost:8000` with:
+- Hot module replacement (HMR) for fast refresh
+- Environment variable injection from `.env.development.local`
+- Service worker support
+- Automatic browser opening
+
+The dev server watches `src/` and `public/` directories for changes.
 
 ### Running Tests
 
@@ -153,7 +187,27 @@ npm install -D husky
 npx husky
 ```
 
-## Deployment
+## Build & Deployment
+
+### Building for Production
+
+```bash
+npm run build
+```
+
+This creates an optimized production build in `dist/` with:
+- Minified JavaScript
+- Environment variables injected from `.env.production.local`
+- Source maps (if `NODE_ENV=development`)
+- Hashed asset filenames for cache busting
+
+### Preview Production Build Locally
+
+```bash
+npm run preview
+```
+
+This starts a server serving the `dist/` directory on `http://localhost:4173`.
 
 ### Deploy to Firebase (Staging/Develop)
 
@@ -166,6 +220,11 @@ Or target specific:
 firebase deploy --only hosting
 firebase deploy --only functions
 ```
+
+**Before deploying**, ensure:
+1. `.env.production.local` exists with correct production values
+2. `npm run build` succeeds locally
+3. All tests pass: `npm test`
 
 ### View Logs
 
@@ -228,9 +287,17 @@ Look for:
 
 ## Troubleshooting
 
-### "VAPID keys not configured"
+### "VAPID key not configured" error in frontend
+
+- Check that `.env.development.local` exists and has `VITE_VAPID_PUBLIC_KEY` set
+- Verify `npm run build` injects the key: check `dist/assets/main-*.js` for the key string
+- For tests, ensure Vite provides a default test key (set in `vite.config.ts`)
+
+### "VAPID keys not configured" in Cloud Functions
+
 - Ensure `firebase functions:config:get vapid` shows your keys
 - Check `functions/.runtimeconfig.json` (local) or Cloud Functions config (deployed)
+- Set via: `firebase functions:config:set vapid.public="KEY" vapid.private="KEY"`
 
 ### Service Worker not registering
 - Check browser DevTools → Application → Service Workers
