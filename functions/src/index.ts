@@ -15,24 +15,58 @@ import webpush from 'web-push';
 admin.initializeApp();
 const db = admin.firestore();
 
-// TODO: Configure VAPID keys via Firebase Functions config
-// firebase functions:config:set vapid.public="..." vapid.private="..."
-const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || 'REPLACE_ME';
-const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || 'REPLACE_ME';
+/**
+ * Configure VAPID keys for Web Push
+ *
+ * Priority (highest to lowest):
+ * 1. Firebase Functions runtime config (firebase functions:config:set)
+ * 2. Environment variables (process.env)
+ * 3. Fallback placeholder (requires configuration before deployment)
+ */
+const vapidPublicKey =
+  process.env.VAPID_PUBLIC_KEY || (process.env.vapid_public as string) || 'REPLACE_ME';
 
-// Configure web-push
-webpush.setVapidDetails(
-  'mailto:admin@example.com', // contact email
-  vapidPublicKey,
-  vapidPrivateKey,
-);
+const vapidPrivateKey =
+  process.env.VAPID_PRIVATE_KEY || (process.env.vapid_private as string) || 'REPLACE_ME';
+
+const vapidContactEmail = process.env.VAPID_CONTACT_EMAIL || 'admin@example.com';
+
+/**
+ * Validate VAPID keys before configuring web-push
+ */
+function validateVapidKeys(): boolean {
+  const publicKeyValid =
+    vapidPublicKey && vapidPublicKey.length > 80 && !vapidPublicKey.includes('REPLACE');
+  const privateKeyValid =
+    vapidPrivateKey && vapidPrivateKey.length > 80 && !vapidPrivateKey.includes('REPLACE');
+
+  if (!publicKeyValid || !privateKeyValid) {
+    console.error(
+      '[WARN] VAPID keys not properly configured. ' +
+        'Set via: firebase functions:config:set vapid.public="KEY" vapid.private="KEY"',
+    );
+    return false;
+  }
+
+  return true;
+}
+
+// Configure web-push with validated keys
+const vapidKeysValid = validateVapidKeys();
+if (vapidKeysValid) {
+  webpush.setVapidDetails(vapidContactEmail, vapidPublicKey, vapidPrivateKey);
+} else {
+  console.warn('[WARN] Web push will fail until VAPID keys are configured');
+}
 
 // ============ REST Endpoints ============
 
 /**
  * POST /api/subscribe - Store a new push subscription
  */
-export const subscribe = functions.region('us-central1').https.onRequest(async (req, res) => {
+functions.setGlobalOptions({ maxInstances: 10, region: 'asia-south1' });
+
+export const subscribe = functions.https.onRequest(async (req, res) => {
   // CORS headers
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'POST');
@@ -49,6 +83,14 @@ export const subscribe = functions.region('us-central1').https.onRequest(async (
   }
 
   try {
+    // Check if VAPID keys are configured
+    if (!vapidKeysValid) {
+      res.status(500).json({
+        error: 'Server not configured for push notifications. VAPID keys missing.',
+      });
+      return;
+    }
+
     const subscription = req.body;
 
     // Validate subscription object
@@ -76,7 +118,7 @@ export const subscribe = functions.region('us-central1').https.onRequest(async (
 /**
  * POST /api/unsubscribe - Remove a push subscription
  */
-export const unsubscribe = functions.region('us-central1').https.onRequest(async (req, res) => {
+export const unsubscribe = functions.https.onRequest(async (req, res) => {
   // CORS headers
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'POST');
@@ -118,67 +160,64 @@ export const unsubscribe = functions.region('us-central1').https.onRequest(async
  * Scheduled Cloud Function - runs every hour
  * Fetches new HN stories and sends push notifications
  */
-export const sendHourlyNotifications = functions
-  .region('us-central1')
-  .pubsub.schedule('every 60 minutes')
-  .onRun(async (_context) => {
-    try {
-      console.log('Starting hourly notification job at', new Date().toISOString());
+export const sendHourlyNotifications = functions.scheduler.onSchedule('0 * * * *', async (_) => {
+  try {
+    console.log('Starting hourly notification job at', new Date().toISOString());
 
-      // Fetch HN newstories
-      const stories = await fetchRecentHNStories();
-      if (stories.length === 0) {
-        console.log('No recent stories found');
-        return;
-      }
+    // Fetch HN newstories
+    const stories = await fetchRecentHNStories();
+    if (stories.length === 0) {
+      console.log('No recent stories found');
+      return;
+    }
 
-      // Get all active subscriptions
-      const subscriptions = await getAllSubscriptions();
-      console.log(`Found ${subscriptions.length} active subscriptions`);
+    // Get all active subscriptions
+    const subscriptions = await getAllSubscriptions();
+    console.log(`Found ${subscriptions.length} active subscriptions`);
 
-      if (subscriptions.length === 0) {
-        console.log('No subscriptions to notify');
-        return;
-      }
+    if (subscriptions.length === 0) {
+      console.log('No subscriptions to notify');
+      return;
+    }
 
-      // Send push to each subscription
-      let successCount = 0;
-      let failureCount = 0;
+    // Send push to each subscription
+    let successCount = 0;
+    let failureCount = 0;
 
-      for (const subDoc of subscriptions) {
-        const subscription = subDoc.data().subscription;
+    for (const subDoc of subscriptions) {
+      const subscription = subDoc.data().subscription;
 
-        for (const story of stories) {
-          try {
-            const payload = JSON.stringify({
-              title: story.title,
-              body: `by ${story.by || 'unknown'} • ${story.score || 0} points`,
-              url: story.url || `https://news.ycombinator.com/item?id=${story.id}`,
-              icon: 'https://news.ycombinator.com/y18.gif',
-            });
+      for (const story of stories) {
+        try {
+          const payload = JSON.stringify({
+            title: story.title,
+            body: `by ${story.by || 'unknown'} • ${story.score || 0} points`,
+            url: story.url || `https://news.ycombinator.com/item?id=${story.id}`,
+            icon: 'https://news.ycombinator.com/y18.gif',
+          });
 
-            await webpush.sendNotification(subscription, payload);
-            successCount++;
-          } catch (error) {
-            console.warn(`Failed to send to subscription:`, error);
-            failureCount++;
+          await webpush.sendNotification(subscription, payload);
+          successCount++;
+        } catch (error) {
+          console.warn(`Failed to send to subscription:`, error);
+          failureCount++;
 
-            // Clean up invalid subscriptions
-            if (error instanceof Error && error.message.includes('410')) {
-              const subId = Buffer.from(subscription.endpoint).toString('base64').slice(0, 32);
-              await db.collection('subscriptions').doc(subId).delete();
-              console.log(`Removed invalid subscription: ${subId}`);
-            }
+          // Clean up invalid subscriptions
+          if (error instanceof Error && error.message.includes('410')) {
+            const subId = Buffer.from(subscription.endpoint).toString('base64').slice(0, 32);
+            await db.collection('subscriptions').doc(subId).delete();
+            console.log(`Removed invalid subscription: ${subId}`);
           }
         }
       }
-
-      console.log(`Notification job complete: ${successCount} sent, ${failureCount} failed`);
-    } catch (error) {
-      console.error('Hourly notification job failed:', error);
-      // Don't throw - let the job finish gracefully
     }
-  });
+
+    console.log(`Notification job complete: ${successCount} sent, ${failureCount} failed`);
+  } catch (error) {
+    console.error('Hourly notification job failed:', error);
+    // Don't throw - let the job finish gracefully
+  }
+});
 
 // ============ Helper Functions ============
 

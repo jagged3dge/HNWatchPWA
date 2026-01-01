@@ -7,13 +7,26 @@
         "source": "**",
         "destination": "/index.html"
       }
+    ],
+    "headers": [
+      {
+        "source": "sw.js",
+        "headers": [
+          {
+            "key": "Service-Worker-Allowed",
+            "value": "/"
+          }
+        ]
+      }
     ]
   },
-  "functions": {
-    "source": "functions",
-    "runtime": "nodejs18",
-    "codebase": "default"
-  },
+  "functions": [
+    {
+      "codebase": "default",
+      "source": "functions",
+      "runtime": "nodejs18"
+    }
+  ],
   "emulators": {
     "hosting": {
       "port": 5000
@@ -24,5 +37,11 @@
     "firestore": {
       "port": 8080
     }
+  },
+  "firestore": {
+    "database": "(default)",
+    "location": "asia-south1",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
   }
 }

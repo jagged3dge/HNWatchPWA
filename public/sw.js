@@ -1,4 +1,20 @@
 // Service Worker for Hacker News Watcher
+//
+// Note: This worker runs in the service worker global scope (self).
+// It cannot directly import ES modules or access the CONFIG object from config.js.
+// Instead, we use hardcoded defaults here, or configuration can be passed via
+// postMessage() from the client or stored in IndexedDB/localStorage.
+
+// Get configuration (fallback to defaults if not available)
+function getHNApiBase() {
+  try {
+    const stored = self.localStorage?.getItem?.('hn-api-base');
+    if (stored) return stored;
+  } catch {
+    // localStorage may not be available in SW context
+  }
+  return 'https://hacker-news.firebaseio.com';
+}
 
 // Install event - register periodic sync if available
 self.addEventListener('install', (event) => {
@@ -104,17 +120,17 @@ self.addEventListener('periodicsync', (event) => {
 // Fetch new HN stories and show notification
 async function fetchAndNotify() {
   try {
+    const hnApiBase = getHNApiBase();
+
     // Fetch latest stories
-    const response = await fetch('https://hacker-news.firebaseio.com/v0/newstories.json');
+    const response = await fetch(`${hnApiBase}/v0/newstories.json`);
     if (!response.ok) throw new Error(`HN API error: ${response.status}`);
 
     const storyIds = await response.json();
     const topStoryId = storyIds[0];
 
     // Fetch story details
-    const storyResponse = await fetch(
-      `https://hacker-news.firebaseio.com/v0/item/${topStoryId}.json`,
-    );
+    const storyResponse = await fetch(`${hnApiBase}/v0/item/${topStoryId}.json`);
     if (!storyResponse.ok) throw new Error(`HN item API error: ${storyResponse.status}`);
 
     const story = await storyResponse.json();

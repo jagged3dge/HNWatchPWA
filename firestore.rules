@@ -1,0 +1,11 @@
+rules_version='2'
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /subscriptions/{document=**} {
+      allow create: if true;  // Allow public subscription creation
+      allow delete: if true;  // Allow self-unsubscribe
+      allow read, update: if false;  // Internal only
+    }
+  }
+}

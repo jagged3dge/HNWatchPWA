@@ -150,8 +150,7 @@ To set up automatic formatting before commits:
 
 ```bash
 npm install -D husky
-npx husky install
-npx husky add .husky/pre-commit "npx biome check --apply"
+npx husky
 ```
 
 ## Deployment

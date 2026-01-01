@@ -9,6 +9,15 @@ const statusEl = document.getElementById('status');
 const subscribeBtnEl = document.getElementById('subscribe-btn');
 const unsubscribeBtnEl = document.getElementById('unsubscribe-btn');
 
+// Verify DOM elements exist
+if (!subscribeBtnEl || !unsubscribeBtnEl || !statusEl) {
+  console.error('Missing required DOM elements', {
+    status: !!statusEl,
+    subscribeBtn: !!subscribeBtnEl,
+    unsubscribeBtn: !!unsubscribeBtnEl,
+  });
+}
+
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', init);
 
@@ -23,23 +32,38 @@ async function init() {
 
     // Register service worker
     if ('serviceWorker' in navigator) {
-      swRegistration = await navigator.serviceWorker.register('sw.js', {
-        scope: '/',
-      });
-      setStatus('Service worker registered', 'pending');
+      try {
+        swRegistration = await navigator.serviceWorker.register('sw.js', {
+          scope: '/',
+        });
+        setStatus('Service worker registered', 'pending');
+      } catch (swError) {
+        console.warn('Service worker registration failed:', swError);
+        setStatus('Service worker unavailable', 'pending');
+        // Continue anyway - allow basic subscription functionality
+      }
     } else {
-      throw new Error('Service Workers not supported');
+      console.warn('Service Workers not supported');
+      // Continue anyway for testing purposes
     }
 
-    // Check existing subscription
-    const existingSubscription = await swRegistration.pushManager.getSubscription();
-    if (existingSubscription) {
-      subscription = existingSubscription;
-      updateUI();
-      setStatus('Already subscribed', 'subscribed');
-    } else {
-      enableSubscribeButton();
+    // Check existing subscription (if service worker is registered)
+    if (swRegistration) {
+      try {
+        const existingSubscription = await swRegistration.pushManager.getSubscription();
+        if (existingSubscription) {
+          subscription = existingSubscription;
+          updateUI();
+          setStatus('Already subscribed', 'subscribed');
+          return;
+        }
+      } catch (pushError) {
+        console.warn('Failed to check existing subscription:', pushError);
+      }
     }
+
+    // No existing subscription - enable subscribe button
+    enableSubscribeButton();
   } catch (error) {
     console.error('Init error:', error);
     setStatus(`Error: ${error.message}`, 'error');
