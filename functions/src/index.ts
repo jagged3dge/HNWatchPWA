@@ -59,12 +59,20 @@ if (vapidKeysValid) {
   console.warn('[WARN] Web push will fail until VAPID keys are configured');
 }
 
+// Configure global options for Cloud Functions
+/**
+ * Set max instances to 10 and region to asia-south1
+ *
+ * @see https://firebase.google.com/docs/functions/manage-functions#max-instances
+ * @see https://firebase.google.com/docs/functions/manage-functions#regions
+ */
+functions.setGlobalOptions({ maxInstances: 10, region: 'asia-south1' });
+
 // ============ REST Endpoints ============
 
 /**
  * POST /api/subscribe - Store a new push subscription
  */
-functions.setGlobalOptions({ maxInstances: 10, region: 'asia-south1' });
 
 export const subscribe = functions.https.onRequest(async (req, res) => {
   // CORS headers
