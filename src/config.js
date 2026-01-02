@@ -23,11 +23,13 @@ const BUILD_ENVIRONMENT =
 function getVapidPublicKey() {
   // 1. Check if injected by server at runtime
   if (typeof window !== 'undefined' && window.__HN_CONFIG__?.vapidPublicKey) {
+    console.log('window.__HN_CONFIG__.vapidPublicKey =', window.__HN_CONFIG__.vapidPublicKey);
     return window.__HN_CONFIG__.vapidPublicKey;
   }
 
   // 2. Use build-time environment variable
   if (BUILD_VAPID_PUBLIC_KEY) {
+    console.log('BUILD_VAPID_PUBLIC_KEY =', BUILD_VAPID_PUBLIC_KEY);
     return BUILD_VAPID_PUBLIC_KEY;
   }
 
@@ -48,26 +50,31 @@ function getVapidPublicKey() {
 function getBackendUrl() {
   // 1. Check if injected by server at runtime
   if (typeof window !== 'undefined' && window.__HN_CONFIG__?.backendUrl) {
+    console.log('window.__HN_CONFIG__.backendUrl =', window.__HN_CONFIG__.backendUrl);
     return window.__HN_CONFIG__.backendUrl;
   }
 
   // 2. Use build-time environment variable
   if (BUILD_BACKEND_URL) {
+    console.log('BUILD_BACKEND_URL =', BUILD_BACKEND_URL);
     return BUILD_BACKEND_URL;
   }
 
   // 3. Fallback placeholder
-  return 'http://localhost:5001/hnwatch-default/us-central1/api';
+  // Emulator/local default — matches firebase emulators output: http://localhost:5001/<project>/us-central1/<function>
+  return 'http://localhost:5001/hnwatchpwa/us-central1';
 }
 
 function getHnApiBase() {
   // 1. Check if injected by server at runtime
   if (typeof window !== 'undefined' && window.__HN_CONFIG__?.hnApiBase) {
+    console.log('window.__HN_CONFIG__.hnApiBase =', window.__HN_CONFIG__.hnApiBase);
     return window.__HN_CONFIG__.hnApiBase;
   }
 
   // 2. Use build-time environment variable
   if (BUILD_HN_API_BASE) {
+    console.log('BUILD_HN_API_BASE =', BUILD_HN_API_BASE);
     return BUILD_HN_API_BASE;
   }
 
