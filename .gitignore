@@ -44,3 +44,5 @@ lerna-debug.log*
 # OS
 Thumbs.db
 .DS_Store
+
+*-debug.log
